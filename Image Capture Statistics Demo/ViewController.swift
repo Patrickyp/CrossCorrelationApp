@@ -19,6 +19,7 @@ import SwiftyDropbox
 class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocationManagerDelegate, AVCaptureVideoDataOutputSampleBufferDelegate  {
     
     var methodStart : Date?
+    var ImageFunc = ImageFunctions()
     
     // ******************** For Crosscorrelation **********
     @IBOutlet var activityIndicator: UIActivityIndicatorView!
@@ -94,15 +95,13 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
     
     // There is a bug that will display an image over the imageview if sign in is tapped while live camera mode is on (opacity = 1).  This is a temporary workaround.
     override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
         self.previewLayer?.opacity = 0
-        //captureSession?.stopRunning()
     }
     
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
-        
         previewLayer?.frame = tempImageView.bounds
         
         // This is needed since we have to recheck after user returns from sign in
@@ -172,7 +171,6 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
     }
     
     func getCurrentMillis() {
-        //print("image #\(imagenum)")
         let t = Int64(Date().timeIntervalSince1970 * 1000)
         print("\(t)")
     }
@@ -192,8 +190,7 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
             
             // *****************Call our xcorr c++ function************.
             var crossCorrelationResult = OpenCVWrapper.findTemplatev2(NSImageArray, distanceFromTarget: distanceDecimal, calculatedVelocity: &velocity)
-            //let crossCorrelationResult = OpenCVWrapper.findTemplatev2(image1, secondImage: image2, distanceFromTarget: distanceDecimal, calculatedVelocity: &velocity)
-            //let crossCorrelationResult = OpenCVWrapper.findTemplatev2(UIImage(named:"cloud1"), secondImage: UIImage(named:"cloud2"), distanceFromTarget: distanceDecimal, calculatedVelocity: &velocity)
+            
             // The result UIImage with arrows is passed to completionHandler.  It is the caller's job to implement completion handling.
             completionHandler(crossCorrelationResult!)
             
@@ -208,16 +205,11 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
             }
         }
     }
-
     
     func startSession(){
         captureSession = AVCaptureSession()
-        captureSession?.sessionPreset = AVCaptureSessionPresetPhoto
-        //captureSession?.sessionPreset = AVCaptureSessionPresetLow
+        captureSession?.sessionPreset = AVCaptureSessionPreset1920x1080
         backCamera = AVCaptureDevice.defaultDevice(withMediaType: AVMediaTypeVideo)
-        let c2 = AVCaptureDevice.devices()
-        print("Availible devices: \(c2)")
-        //NSLog("\nCurrent format: %@\nMax zoom factor: %f\n", backCamera?.activeFormat ?? "nil", backCamera?.activeFormat.videoMaxZoomFactor ?? 9999.0);
         
         // Catch error using the do catch block
         do {
@@ -241,39 +233,10 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
                 }
                 let queue = DispatchQueue(label: "edu.hawaii.yuep.videoQueue")
                 dataOutput.setSampleBufferDelegate(self, queue: queue)
-                
-                /*try backCamera?.lockForConfiguration()
-                let zoomFactor:CGFloat = 4
-                backCamera?.videoZoomFactor = zoomFactor
-                backCamera?.unlockForConfiguration()
-                print("Final zoom factor = \(backCamera?.videoZoomFactor)")*/
             }
         } catch _ {
             print("Error setting up camera!")
         }
-    }
-    
-    //Write text to UIImages
-    func textToImage(drawText text: NSString, inImage image: UIImage, atPoint point: CGPoint) -> UIImage {
-        let textColor = UIColor.red
-        let textFont = UIFont(name: "Helvetica Bold", size: 12)!
-        
-        let scale = UIScreen.main.scale
-        UIGraphicsBeginImageContextWithOptions(image.size, false, scale)
-        
-        let textFontAttributes = [
-            NSFontAttributeName: textFont,
-            NSForegroundColorAttributeName: textColor,
-            ] as [String : Any]
-        image.draw(in: CGRect(origin: CGPoint.zero, size: image.size))
-        
-        let rect = CGRect(origin: point, size: image.size)
-        text.draw(in: rect, withAttributes: textFontAttributes)
-        
-        let newImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        
-        return newImage!
     }
     
     func writeStatisticToImage(image:UIImage) -> UIImage{
@@ -295,7 +258,8 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
         stats += "\n"
         stats += rollLabel.text!
         
-        let finalImage = textToImage(drawText: stats as NSString, inImage: image, atPoint: CGPoint(x: 20, y: 20))
+        let finalImage = ImageFunc.textToImage(drawText: stats as NSString, inImage: image, atPoint: CGPoint(x: 20, y: 20))
+        //let finalImage = textToImage(drawText: stats as NSString, inImage: image, atPoint: CGPoint(x: 20, y: 20))
         return finalImage
     }
     
@@ -309,31 +273,36 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
     var skipCount = 0
     var imageSaved = 0
     
-    let numberOfImageToSave = 4
+    let numberOfImageToSave = 10
     
+    
+    // MARK: - Capture frame delegate.
+    
+    // test variables
+    var count = 0
     
     // ******************* VideoDataCapture Delegate Methods **********************
     func captureOutput(_ captureOutput: AVCaptureOutput!, didOutputSampleBuffer sampleBuffer: CMSampleBuffer!, from connection: AVCaptureConnection!) {
+
         if (recording == true) {
             // First frame, start timer and save frame to array.
             if (imageSaved == 0) {
                 startTime = NSDate()
                 // Convert from sampleBuffer to UIImage
-                var image = sampleBufferToUIImage(sampleBuffer: sampleBuffer)
+                var image = ImageFunc.sampleBufferToUIImage(sampleBuffer: sampleBuffer)
                 // Rotate image
                 image = UIImage(cgImage: image.cgImage!, scale: 1.0, orientation: UIImageOrientation.right)
                 // Write statistics text to image
-                let statsImage = writeStatisticToImage(image: image)
-                imageArray.append(statsImage)
+                //let statsImage = writeStatisticToImage(image: image)
+                imageArray.append(image)
                 imageSaved+=1
             }
             else if (delayType == "short") {
                 if (skipCount >= 2) {
                     delayType = "long"
-                    var image = sampleBufferToUIImage(sampleBuffer: sampleBuffer)
+                    var image = ImageFunc.sampleBufferToUIImage(sampleBuffer: sampleBuffer)
                     image = UIImage(cgImage: image.cgImage!, scale: 1.0, orientation: UIImageOrientation.right)
-                    let statsImage = writeStatisticToImage(image: image)
-                    imageArray.append(statsImage)
+                    imageArray.append(image)
                     imageSaved+=1
                     skipCount = 0
                 } else {
@@ -343,10 +312,9 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
             else if (delayType == "long") {
                 if (skipCount >= 14) {
                     delayType = "short"
-                    var image = sampleBufferToUIImage(sampleBuffer: sampleBuffer)
+                    var image = ImageFunc.sampleBufferToUIImage(sampleBuffer: sampleBuffer)
                     image = UIImage(cgImage: image.cgImage!, scale: 1.0, orientation: UIImageOrientation.right)
-                    let statsImage = writeStatisticToImage(image: image)
-                    imageArray.append(statsImage)
+                    imageArray.append(image)
                     imageSaved+=1
                     skipCount = 0
                 } else {
@@ -366,7 +334,8 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
                     self.imageView1.image = self.imageArray[0]
                     self.imageView2.image = self.imageArray[1]
                     // Save original images to library
-                    self.saveImagesToLibrary(imageArray: self.imageArray)
+                    //self.saveImagesToLibrary(imageArray: self.imageArray)
+                    ImageFunc.saveImagesToLibrary(imageArray: self.imageArray)
                 }
                 
                 self.crossCorrelateImages(imageArr: imageArray, completionHandler: {(arrowedImage:UIImage) -> Void in
@@ -378,13 +347,14 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
                 skipCount = 0
                 recording = false
                 delayType = "short"
-
+                
             }
         }
+        
     }
     
     
-
+    
     /********************* Delegates for Statistics *********************/
     
     //delegate method, constantly read latitutde and longitutde
@@ -415,7 +385,7 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
     }
     
     func startTilt(){
-        //set up motion (tilt) initialization
+        
         motionManager.startDeviceMotionUpdates(to: OperationQueue.current!, withHandler:{
             deviceManager, error in
             //do the following when we get a DeviceMotionUpdate
@@ -434,8 +404,6 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
     
     //function to start Altimeter and collect pressure data.  Called in ViewDidLoad.
     func startAltimeter() {
-        
-        print("Started relative altitude updates.")
         
         // Check if altimeter feature is available
         if (CMAltimeter.isRelativeAltitudeAvailable()) {
@@ -522,31 +490,6 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
         }
     }
     
-    /*********************** Functions to Save Image to library ********************/
-    func saveImagesToLibrary (imageArray: [UIImage]){
-        for img in imageArray {
-            //
-            //let img = UIImage(cgImage: img.cgImage!, scale: 1.0, orientation: UIImageOrientation.right)
-            //let statsImage = writeStatisticToImage(image: img)
-            UIImageWriteToSavedPhotosAlbum(img, self, #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
-        }
-    }
-    
-    func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
-        if let error = error {
-            // we got back an error!
-            print("Save error \(error.localizedDescription)")
-            // If failed try save again
-            UIImageWriteToSavedPhotosAlbum(image, self, #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
-            //let ac = UIAlertController(title: "Save error", message: error.localizedDescription, preferredStyle: .alert)
-            //ac.addAction(UIAlertAction(title: "OK", style: .default))
-            //present(ac, animated: true)
-        } else {
-            //let ac = UIAlertController(title: "Saved!", message: "Your altered image has been saved to your photos.", preferredStyle: .alert)
-            //ac.addAction(UIAlertAction(title: "OK", style: .default))
-            //present(ac, animated: true)
-        }
-    }
     
     /********************** Msc Functions ********************/
     
@@ -555,36 +498,5 @@ class ViewController: UIViewController, UIImagePickerControllerDelegate, CLLocat
         //Causes the view (or one of its embedded text fields) to resign the first responder status.
         view.endEditing(true)
     }
-    
-    func sampleBufferToUIImage(sampleBuffer: CMSampleBuffer) -> UIImage{
-        
-        let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-        
-        CVPixelBufferLockBaseAddress(imageBuffer!, CVPixelBufferLockFlags(rawValue: 0))
-        
-        let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer!)
-        
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer!)
-        
-        let width = CVPixelBufferGetWidth(imageBuffer!)
-        let height = CVPixelBufferGetHeight(imageBuffer!)
-        
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        
-        let context = CGContext(data: baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue)
-        
-        let quartzImage = context!.makeImage()
-        
-        CVPixelBufferUnlockBaseAddress(imageBuffer!, CVPixelBufferLockFlags(rawValue: 0))
-        
-        let image = UIImage(cgImage: quartzImage!)
-        
-        return image
-        
-    }
-    
-    
 }
 
