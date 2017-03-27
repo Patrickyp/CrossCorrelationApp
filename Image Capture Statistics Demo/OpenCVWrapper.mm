@@ -36,9 +36,11 @@ std::vector<std::vector<int>> dXArray;
 std::vector<std::vector<int>> dYArray;
 
 double xCorrCooefficientCutoff = 0.5;
+int badXCorrValue = -999;
 
-
-// Main function
+/*
+ This function takes an array of even number of UIImages, does cross-correlation to calculate dx and dy for each template location on each pair and save the resulted arrowed images to library.  All dx and dy with cross correlation cooefficient above xCorrCooefficientCutoff are averaged into a arrowed image representing the average that saved to library and returned as UIImage to caller.
+*/
 + (UIImage *) findTemplatev2:(NSArray*)imageArray distanceFromTarget:(double)distance calculatedVelocity:(double *)velocity;
 {
     cv::Mat stockImage;
@@ -99,7 +101,7 @@ double xCorrCooefficientCutoff = 0.5;
         //std::cout << "Image2XSize:" << image2.cols << " Image2YSize:" << image2.rows << std::endl;
         
         // Do cross correlation on the 2 images.  Result template center and dx/dy are saved in global vector.
-        Cross_Corr_Function_Ver2(image1, image2, SearchPointX, SearchPointY, tempSize, 5, SearchPointSize);
+        Cross_Corr_Function_Ver2(image1, image2, SearchPointX, SearchPointY, tempSize, .5, SearchPointSize);
         
         // Graph arrows using data from global vector.
         for (int i = 0; i < resultXCoordinates[0].size(); i++) {
@@ -107,17 +109,18 @@ double xCorrCooefficientCutoff = 0.5;
             cv::Point originalPt = cv::Point(SearchPointX[i], SearchPointY[i]);
             cv::Point matchPt = cv::Point(resultXCoordinates[index][i], resultYCoordinates[index][i]);
             cv::putText(image1,"*",matchPt, fontFace, .5, cv::Scalar(0,0,255), 1,8);
-            cv::arrowedLine(image1,originalPt,matchPt,cv::Scalar(255,0,0,255),3,CV_AA,0,0.2);
+            cv::arrowedLine(image1,originalPt,matchPt,cv::Scalar(255,0,0,255),2,CV_AA,0,0.2);
         }
         
-        // Rotating image in ViewController so no need to do it here anymore.
+        // Rotating image.
         //cv::Mat image1_rotate;
-        //cv::transpose(image1, image1_rotate);
-        //cv::flip(image1_rotate, image1_rotate, 1);
+        cv::transpose(image1, image1);
+        cv::flip(image1, image1, 1);
         
         
         UIImageWriteToSavedPhotosAlbum(MatToUIImage(image1), nil, nil, nil);
     }
+    
     
     // Vector to store average dx and dy.
     std::vector<double> dXMedian;
@@ -135,7 +138,7 @@ double xCorrCooefficientCutoff = 0.5;
             int dx = dXArray[j][i];
             int dy = dYArray[j][i];
             // 0 means below xcorr threshold so ignore, otherwise add to average, if dx is 0 then dy should also be 0 so redundant for now.
-            if ((dx != 0) && (dy != 0) ) {
+            if ((dx != badXCorrValue) && (dy != badXCorrValue) ) {
                 goodDXCount++;
                 goodDYCount++;
                 dxSum += dXArray[j][i];
@@ -154,28 +157,34 @@ double xCorrCooefficientCutoff = 0.5;
             dYMedian.push_back(averageDY);
         }
         else {
-            dXMedian.push_back(0);
-            dYMedian.push_back(0);
+            dXMedian.push_back(badXCorrValue);
+            dYMedian.push_back(badXCorrValue);
         }
         //std::cout << "dXMean = " << averageDX << std::endl;
     }
 
     // Graph average dx and dy arrows to first image.
-    cv::Mat image1Clone;
-    UIImageToMat(imageArray[0], image1Clone);
+    cv::Mat averageImage;
+    UIImageToMat(imageArray[0], averageImage);
     
     for (int i = 0; i < dYMedian.size(); i++) {
-        if(dXMedian[i] != 0){
+        if(dXMedian[i] != badXCorrValue){
             int fontFace = cv::FONT_HERSHEY_SCRIPT_SIMPLEX;
             cv::Point originalPt = cv::Point(SearchPointX[i], SearchPointY[i]);
             cv::Point matchPt = cv::Point(SearchPointX[i]+dXMedian[i], SearchPointY[i]+dYMedian[i]);
             //cv::putText(image1Clone,"*",matchPt, fontFace, .5, cv::Scalar(0,0,255), 1,8);
-            cv::arrowedLine(image1Clone,originalPt,matchPt,cv::Scalar(255,0,0,255),3,CV_AA,0,0.2);
+            cv::arrowedLine(averageImage,originalPt,matchPt,cv::Scalar(255,0,0,255),3,CV_AA,0,0.2);
+        }
+        else {
+            std::cout << "dx#" << i << " is 0! "<< std::endl;
         }
     }
     
+    cv::transpose(averageImage, averageImage);
+    cv::flip(averageImage, averageImage, 1);
+    
     // Save final average dx and dy arrowed image to library.
-    UIImageWriteToSavedPhotosAlbum(MatToUIImage(image1Clone), nil, nil, nil);
+    UIImageWriteToSavedPhotosAlbum(MatToUIImage(averageImage), nil, nil, nil);
     
     // Clear global vectors, we are done with xcorr all images.
     dXArray.clear();
@@ -185,12 +194,12 @@ double xCorrCooefficientCutoff = 0.5;
     resultYCoordinates.clear();
     
     // Return final average dx and dy arrowed image.
-    return MatToUIImage(image1Clone);
+    return MatToUIImage(averageImage);
 }
 
 
 
-int Cross_Corr_Function_Ver2(cv::Mat image1, cv::Mat image2, int* Img1XCenterForTemplate, int* Img1YCenterForTemplate, int TempSize, int CorrThreshold, int SearchPointSize) {
+int Cross_Corr_Function_Ver2(cv::Mat image1, cv::Mat image2, int* Img1XCenterForTemplate, int* Img1YCenterForTemplate, int TempSize, double CorrThreshold, int SearchPointSize) {
     
     int TempHeight = TempSize;
     int TempWidth = TempSize;
@@ -237,16 +246,16 @@ int Cross_Corr_Function_Ver2(cv::Mat image1, cv::Mat image2, int* Img1XCenterFor
         double minVal, maxVal;
         cv::Point minLoc, maxLoc, matchLoc;
         cv::minMaxLoc(result, &minVal, &maxVal, &minLoc, &maxLoc, cv::Mat());
-        std::cout << "Max ValueB4Norm: " << maxVal << "Min Value: " << minVal << std::endl;
+        //std::cout << "Max ValueB4Norm: " << maxVal << "Min Value: " << minVal << std::endl;
         normalize(result, result, 0, 5, cv::NORM_MINMAX, -1, cv::Mat() );
-        if (maxVal < 0.5){
-            Template = 1.0f * Template - 50; //darken template
+        if (maxVal < xCorrCooefficientCutoff){
+            //Template = 1.5f * Template - 50; //darken template
         }
         double garbage;
         // get the max and min location from the match mat
         cv::minMaxLoc(result, &garbage, &garbage, &minLoc, &maxLoc, cv::Mat());
         matchLoc = maxLoc;
-        std::cout << "Max Value: " << maxVal << std::endl;
+        //std::cout << "Max Value: " << maxVal << std::endl;
         
         // Get the center x and y location of the result template in respect to SearchAreaImage
         int ResultXSearchAreaImage = matchLoc.x + TempWidth/2;
@@ -267,8 +276,9 @@ int Cross_Corr_Function_Ver2(cv::Mat image1, cv::Mat image2, int* Img1XCenterFor
             dy = ResultYImage2 - Img1YCenterForTemplate[i];
         }
         else {
-            dx = 0;
-            dy = 0;
+            Template = 1.5f * Template - 50; //darken template
+            dx = badXCorrValue;
+            dy = badXCorrValue;
         }
         dXArrayThisRun.push_back(dx);
         dYArrayThisRun.push_back(dy);
